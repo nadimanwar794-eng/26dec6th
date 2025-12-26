@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { LessonContent, Subject, ClassLevel, Chapter, MCQItem, ContentType } from '../types';
@@ -98,20 +97,15 @@ export const LessonView: React.FC<Props> = ({
                                        let btnClass = "w-full text-left p-3 rounded-xl border transition-all text-sm font-medium relative overflow-hidden ";
                                        
                                        // IMMEDIATE FEEDBACK LOGIC
-                                       // If answered, show Red/Green immediately for this question
                                        if (isAnswered) {
                                            if (oIdx === q.correctAnswer) {
-                                               // Always show correct answer as Green
                                                btnClass += "bg-green-100 border-green-300 text-green-800";
                                            } else if (userAnswer === oIdx) {
-                                               // Selected Wrong Option -> Red
                                                btnClass += "bg-red-100 border-red-300 text-red-800";
                                            } else {
-                                               // Other Options -> Dimmed
                                                btnClass += "bg-slate-50 border-slate-100 opacity-60";
                                            }
                                        } else {
-                                           // Not Answered Yet -> Standard State
                                            btnClass += "bg-white border-slate-200 hover:bg-slate-50 hover:border-blue-200";
                                        }
 
@@ -132,7 +126,6 @@ export const LessonView: React.FC<Props> = ({
                                    })}
                                </div>
                                
-                               {/* Show Explanation Immediately if Answered */}
                                {(isAnswered || showResults) && (
                                    <div className="mt-4 pt-4 border-t border-slate-100 animate-in slide-in-from-top-2">
                                        <div className={`flex items-center gap-2 text-sm font-bold mb-1 ${isCorrect ? 'text-green-600' : 'text-red-500'}`}>
@@ -167,27 +160,53 @@ export const LessonView: React.FC<Props> = ({
       );
   }
 
-  // --- VIDEO RENDERER (Playlist Support) ---
+  // --- VIDEO RENDERER (Updated Logic) ---
   if ((content.type === 'PDF_VIEWER' || content.type === 'VIDEO_LECTURE') && (content.content.includes('youtube.com') || content.content.includes('youtu.be') || content.content.includes('drive.google.com/file') || content.content.includes('.mp4') || (content.videoPlaylist && content.videoPlaylist.length > 0))) {
       const [currentVideoIndex, setCurrentVideoIndex] = useState(0);
+      
+      // Playlist Setup
       const playlist = content.videoPlaylist && content.videoPlaylist.length > 0 
           ? content.videoPlaylist 
           : [{ title: chapter.title, url: content.content }];
       
-      const currentVideo = playlist[currentVideoIndex];
-      let embedUrl = currentVideo.url;
+      const currentVideo = playlist[currentVideoIndex] || playlist[0]; // Safety Fallback
       
-      // YouTube URL conversion
-      if (embedUrl.includes('youtube.com/watch')) {
-          const videoId = new URL(embedUrl).searchParams.get('v');
-          embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1`;
-      } else if (embedUrl.includes('youtu.be/')) {
-          const videoId = embedUrl.split('youtu.be/')[1];
-          embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1`;
-      } else if (embedUrl.includes('drive.google.com/file')) {
-          const fileId = embedUrl.match(/\/d\/([a-zA-Z0-9-_]+)/)?.[1];
-          embedUrl = `https://drive.google.com/file/d/${fileId}/preview`;
-      }
+      // ✅ ROBUST URL PARSER (Handles Shorts, Share links, Embeds)
+      const getVideoEmbedUrl = (url: string) => {
+          try {
+              if (!url) return '';
+              
+              let videoId = '';
+              // Case 1: Browser URL (youtube.com/watch?v=...)
+              if (url.includes('youtube.com/watch')) {
+                  const urlObj = new URL(url);
+                  videoId = urlObj.searchParams.get('v') || '';
+              } 
+              // Case 2: Share URL (youtu.be/...)
+              else if (url.includes('youtu.be/')) {
+                  videoId = url.split('youtu.be/')[1]?.split('?')[0];
+              } 
+              // Case 3: Embed URL (youtube.com/embed/...)
+              else if (url.includes('youtube.com/embed/')) {
+                  videoId = url.split('embed/')[1]?.split('?')[0];
+              }
+
+              // Return Clean YouTube Embed
+              if (videoId) {
+                  return `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1`;
+              }
+              
+              // Case 4: Google Drive
+              if (url.includes('drive.google.com/file')) {
+                   const fileId = url.match(/\/d\/([a-zA-Z0-9-_]+)/)?.[1];
+                   if(fileId) return `https://drive.google.com/file/d/${fileId}/preview`;
+              }
+
+              return url; // Default (e.g. .mp4)
+          } catch(e) { return url; }
+      };
+
+      const embedUrl = getVideoEmbedUrl(currentVideo.url);
       
       return (
           <div className="flex flex-col h-[calc(100vh-80px)] bg-slate-900">
@@ -201,23 +220,25 @@ export const LessonView: React.FC<Props> = ({
               
               <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
                   <div className="flex-1 bg-black relative">
-                      <iframe 
-                           key={embedUrl} // Force reload on URL change
-                           src={embedUrl}
-                           className="w-full h-full border-0" 
-                           allow="autoplay; fullscreen; picture-in-picture"
-                           allowFullScreen
-                           title={currentVideo.title}
-                           onLoad={() => {
-                               // Note: Cannot auto-detect end of video in iframe without API. 
-                               // User has to click 'Next' manually or we rely on YouTube autoplay if playlist.
-                           }}
-                       />
+                      {embedUrl ? (
+                          <iframe 
+                               key={embedUrl} // Force reload on URL change
+                               src={embedUrl}
+                               className="w-full h-full border-0" 
+                               allow="autoplay; fullscreen; picture-in-picture; encrypted-media; gyroscope; accelerometer"
+                               allowFullScreen
+                               title={currentVideo.title}
+                           />
+                      ) : (
+                          <div className="flex items-center justify-center h-full text-slate-500">
+                              <p>Video URL not found</p>
+                          </div>
+                      )}
                   </div>
                   
                   {/* Playlist Sidebar */}
                   {playlist.length > 1 && (
-                      <div className="w-full md:w-80 bg-slate-900 border-l border-slate-800 flex flex-col">
+                      <div className="w-full md:w-80 bg-slate-900 border-l border-slate-800 flex flex-col max-h-[40vh] md:max-h-full">
                           <div className="p-3 bg-slate-800 font-bold text-white text-xs uppercase tracking-widest border-b border-slate-700">
                               Up Next ({currentVideoIndex + 1}/{playlist.length})
                           </div>
@@ -258,7 +279,7 @@ export const LessonView: React.FC<Props> = ({
                        <ArrowLeft size={18} /> Back
                    </button>
                    <h3 className="font-bold text-slate-800 text-sm truncate max-w-[200px]">{chapter.title}</h3>
-                   <div className="w-10"></div> {/* Spacer for alignment */}
+                   <div className="w-10"></div> 
               </div>
               
               <div className="flex-1 w-full bg-white relative overflow-hidden">
@@ -270,7 +291,6 @@ export const LessonView: React.FC<Props> = ({
                              allowFullScreen
                              title="PDF Viewer"
                          />
-                         {/* TRANSPARENT BLOCKER for Top-Right 'Pop-out' Button */}
                          <div className="absolute top-0 right-0 w-20 h-20 z-10 bg-transparent"></div>
                      </div>
                   ) : (
@@ -280,7 +300,6 @@ export const LessonView: React.FC<Props> = ({
                           <p className="text-slate-500 mb-6 max-w-md">
                               This content is hosted externally and cannot be embedded.
                           </p>
-                          {/* Removed 'Open Content' button to prevent link sharing */}
                           <p className="text-xs text-slate-400 font-medium">Please contact admin if this content is not loading.</p>
                       </div>
                   )}
@@ -307,7 +326,6 @@ export const LessonView: React.FC<Props> = ({
 
            {/* Content */}
            <div className="max-w-3xl mx-auto p-6 md:p-10">
-               {/* Using dangerous HTML as it comes from Admin */}
                <div 
                    className="prose prose-slate max-w-none prose-img:rounded-xl prose-headings:text-slate-800 prose-a:text-blue-600"
                    dangerouslySetInnerHTML={{ __html: content.content }}
@@ -336,7 +354,7 @@ export const LessonView: React.FC<Props> = ({
                <h3 className="font-bold text-slate-800 text-sm leading-tight">{chapter.title}</h3>
                <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wider">{content.subtitle}</p>
            </div>
-           <div className="w-8"></div> {/* Spacer to balance Back button */}
+           <div className="w-8"></div>
        </div>
 
        {/* Notes Body */}
@@ -368,3 +386,4 @@ export const LessonView: React.FC<Props> = ({
     </div>
   );
 };
+
